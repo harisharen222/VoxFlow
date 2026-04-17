@@ -1,193 +1,335 @@
-// AskPage.jsx — Main voice + chat interface (hero of the app)
-import { useEffect, useRef, useState } from "react";
-import api from "../hooks/useApi.js";
-import { useSession } from "../context/SessionContext.jsx";
-import { useToast } from "../hooks/useToast.js";
-import ChatBubble from "../components/ChatBubble.jsx";
+// AskPage.jsx — Talk page: VoiceOrb + Chat + Context Panel
+import { useState, useEffect, useRef } from "react";
+import {
+  Mic, Search, Zap, CheckCircle2, BookOpen, Brain,
+  Send, ChevronRight,
+} from "lucide-react";
 import VoiceOrb from "../components/VoiceOrb.jsx";
-import Spinner from "../components/Spinner.jsx";
+import ChatBubble from "../components/ChatBubble.jsx";
+import ActionCard from "../components/ActionCard.jsx";
 
-const SUGGESTIONS = [
-  "What documents have been uploaded?",
-  "Summarize the latest knowledge base",
-  "Find information about the project",
-  "What can you help me with?",
+// ── Static mock data for right panel ─────────────────────────────────────────
+const MOCK_KNOWLEDGE = [
+  { title: "Q3 Planning Document", excerpt: "Key initiatives include expanding the AI assistant capabilities…", source: "Drive" },
+  { title: "Design Guidelines v2", excerpt: "All primary actions should use rounded-2xl with 48px touch targets…", source: "Notion" },
+  { title: "Team Meeting Notes", excerpt: "Action items from last week: finalize roadmap, schedule review…", source: "Drive" },
 ];
 
-export default function AskPage() {
-  const { sessionId, userId } = useSession();
-  const toast = useToast();
+const MOCK_MEMORIES = [
+  { text: "User prefers concise summaries over long answers.", time: "3 days ago" },
+  { text: "Last task created was for Priya at 10 AM.", time: "1 day ago" },
+  { text: "Frequently asks about Q3 metrics and roadmap.", time: "2 hrs ago" },
+];
 
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [orbState, setOrbState] = useState("idle"); // idle | listening | thinking | speaking
-  const textareaRef = useRef(null);
-  const scrollRef = useRef(null);
+// ── Agent status steps ─────────────────────────────────────────────────────
+const STEPS = [
+  { label: "Awaiting input",      Icon: Mic },
+  { label: "Thinking",            Icon: Brain },
+  { label: "Searching knowledge", Icon: Search },
+  { label: "Executing action",    Icon: Zap },
+  { label: "Done",                Icon: CheckCircle2 },
+];
 
+// ── Demo response sequence ─────────────────────────────────────────────────
+function useDemoFlow(chatLength, setOrbState, setAiStep, setChat) {
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, loading]);
-
-  function autoResize() {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  }
-
-  async function send(q) {
-    const question = (q || input).trim();
-    if (!question || loading) return;
-    setMessages((m) => [...m, { role: "user", content: question }]);
-    setInput("");
-    setTimeout(autoResize, 0);
-    setLoading(true);
+    if (chatLength === 0) return;
     setOrbState("thinking");
-    try {
-      const res = await api.post("/ask", { question, session_id: sessionId, user_id: userId });
+    setAiStep(1);
+
+    const t1 = setTimeout(() => setAiStep(2), 1200);
+    const t2 = setTimeout(() => setAiStep(3), 2400);
+    const t3 = setTimeout(() => {
+      setAiStep(4);
       setOrbState("speaking");
-      setMessages((m) => [...m, { role: "assistant", content: res.answer || "(no answer)", sources: res.sources || [] }]);
-      setTimeout(() => setOrbState("idle"), 1500);
-    } catch (err) {
-      toast.error(err.message || "Failed to get answer");
-      setMessages((m) => [...m, { role: "assistant", content: err.message || "Request failed", sources: [] }]);
-      setOrbState("idle");
-    } finally {
-      setLoading(false);
-    }
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "ai",
+          text: "Done — I've created the task 'Follow up with Priya' and added it to your queue. Is there anything else you'd like me to do?",
+        },
+      ]);
+    }, 3800);
+    const t4 = setTimeout(() => setOrbState("idle"), 6500);
+
+    return () => [t1, t2, t3, t4].forEach(clearTimeout);
+  }, [chatLength]);
+}
+
+export default function AskPage() {
+  const [orbState, setOrbState] = useState("idle");
+  const [chat, setChat] = useState([]);
+  const [activeTab, setActiveTab] = useState("actions");
+  const [aiStep, setAiStep] = useState(0);
+  const [inputText, setInputText] = useState("");
+  const chatEndRef = useRef(null);
+
+  useDemoFlow(chat.length, setOrbState, setAiStep, setChat);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat]);
+
+  function startDemo() {
+    if (chat.length > 0 || orbState !== "idle") return;
+    setOrbState("listening");
+    setTimeout(() => {
+      setChat([{ role: "user", text: "Create a task for Priya" }]);
+    }, 800);
   }
 
-  function onKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  function handleSend(e) {
+    e.preventDefault();
+    const text = inputText.trim();
+    if (!text) return;
+    setInputText("");
+    setChat((prev) => [...prev, { role: "user", text }]);
   }
 
-  const isEmpty = messages.length === 0;
+  const TABS = ["actions", "knowledge", "memory"];
 
   return (
-    <div className="flex h-full flex-col bg-bg">
+    <div className="flex w-full h-full overflow-hidden">
 
-      {/* ── Two-panel Layout ── */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* ── LEFT: Chat Area (60%) ──────────────────────────── */}
+      <div className="w-[60%] flex flex-col h-full bg-[#F8F9FB] border-r border-gray-200">
 
-        {/* LEFT — Chat + Orb */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        {/* Orb Section */}
+        <div
+          className="shrink-0 flex flex-col items-center justify-center gap-2 py-10 border-b border-gray-200 bg-white cursor-pointer select-none"
+          onClick={startDemo}
+          title="Click to start demo"
+        >
+          <VoiceOrb state={orbState} />
+          {chat.length === 0 && orbState === "idle" && (
+            <p className="text-xs text-gray-400 mt-2 flex items-center gap-1.5">
+              Click the orb to begin a demo <ChevronRight size={12} />
+            </p>
+          )}
+        </div>
 
-          {/* Hero area (empty state) */}
-          {isEmpty ? (
-            <div className="flex flex-1 flex-col items-center justify-center px-6 text-center gap-8">
-
-              {/* Voice Orb */}
-              <VoiceOrb state={orbState} size={140} onClick={() => {}} />
-
-              {/* Headline */}
-              <div className="max-w-lg">
-                <h1 className="text-3xl font-bold tracking-tight mb-3">
-                  <span className="gradient-text">Talk. Get Answers.</span>
-                  <br />
-                  <span className="text-txt">Get Things Done.</span>
-                </h1>
-                <p className="text-txt-2 text-base leading-relaxed">
-                  Your voice-powered AI that finds information, creates tasks,<br />
-                  schedules meetings, and remembers everything.
-                </p>
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+          {chat.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-60">
+              <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+                <Mic size={22} className="text-gray-400" strokeWidth={1.5} />
               </div>
-
-              {/* Feature chips */}
-              <div className="flex flex-wrap gap-2 justify-center max-w-md">
-                {[
-                  { icon: "🔍", text: "Smart Search" },
-                  { icon: "✅", text: "Task Creation" },
-                  { icon: "📅", text: "Meeting Scheduler" },
-                  { icon: "👤", text: "People Lookup" },
-                  { icon: "🧠", text: "Memory" },
-                  { icon: "📄", text: "Doc Summaries" },
-                ].map((f) => (
-                  <span key={f.text} className="badge bg-white/5 border border-white/8 text-txt-2 text-xs px-3 py-1.5 rounded-full">
-                    <span className="mr-1">{f.icon}</span>{f.text}
-                  </span>
-                ))}
-              </div>
-
-              {/* Suggestion pills */}
-              <div className="flex flex-col gap-2 w-full max-w-md">
-                <p className="text-xs text-txt-3 text-left font-medium uppercase tracking-wider mb-1">Try asking</p>
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => send(s)}
-                    className="text-left px-4 py-3 rounded-xl bg-card border border-border text-sm text-txt-2 hover:text-txt hover:border-accent/40 hover:bg-card-2 transition-all duration-200 card-hover"
-                  >
-                    {s}
-                  </button>
-                ))}
+              <div>
+                <p className="font-semibold text-gray-700 text-sm">Start by speaking to your assistant</p>
+                <ul className="mt-3 space-y-1.5 text-sm text-gray-500 text-left">
+                  {[
+                    "\"Create a task for Priya\"",
+                    "\"Summarize my documents\"",
+                    "\"What did I ask earlier?\"",
+                  ].map((s) => (
+                    <li key={s} className="flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-indigo-400 shrink-0" />
+                      {s}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           ) : (
             <>
-              {/* Compact orb header when chatting */}
-              <div className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-                <VoiceOrb state={orbState} size={44} onClick={() => {}} />
-                <div>
-                  <p className="text-sm font-semibold text-txt">Knowledge Agent</p>
-                  <p className="text-xs text-txt-3">Session · {sessionId.slice(0, 8)}…</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    try { await api.delete(`/memory/session/${encodeURIComponent(sessionId)}`); setMessages([]); toast.success("Session cleared"); }
-                    catch (e) { toast.error(e.message); }
-                  }}
-                  className="ml-auto btn-ghost text-xs py-1.5 px-3"
-                >
-                  Clear
-                </button>
-              </div>
+              {chat.map((msg, i) => (
+                <ChatBubble key={i} role={msg.role} text={msg.text} />
+              ))}
+              <div ref={chatEndRef} />
+            </>
+          )}
+        </div>
 
-              {/* Messages */}
-              <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
-                {messages.map((m, i) => (
-                  <ChatBubble key={i} role={m.role} content={m.content} sources={m.sources} />
-                ))}
-                {loading && (
-                  <div className="flex items-center gap-2 text-sm text-txt-2 ml-11">
-                    <Spinner size={14} /> <span>Thinking...</span>
+        {/* Text input bar */}
+        <div className="shrink-0 border-t border-gray-200 bg-white px-6 py-4">
+          <form onSubmit={handleSend} className="relative">
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Type a message or command…"
+              className="
+                w-full rounded-xl bg-gray-50 border border-gray-200
+                pl-4 pr-12 py-3 text-sm text-gray-900 placeholder:text-gray-400
+                focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400
+                transition-all duration-200
+              "
+            />
+            <button
+              type="submit"
+              disabled={!inputText.trim()}
+              className="
+                absolute right-2 top-1/2 -translate-y-1/2
+                w-8 h-8 rounded-lg flex items-center justify-center
+                bg-indigo-600 text-white
+                hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed
+                transition-all duration-150
+              "
+            >
+              <Send size={14} strokeWidth={2.2} />
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* ── RIGHT: Context Panel (40%) ─────────────────────── */}
+      <div className="w-[40%] flex flex-col h-full bg-white">
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 px-6 pt-5 shrink-0 gap-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`
+                px-4 py-2.5 text-sm font-semibold capitalize border-b-2
+                transition-all duration-150
+                ${activeTab === tab
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-gray-400 hover:text-gray-700"
+                }
+              `}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Panel content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/50">
+
+          {/* ── ACTIONS TAB ── */}
+          {activeTab === "actions" && (
+            <>
+              {/* Agent Status */}
+              {chat.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm fade-in-up">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                    <h3 className="text-sm font-semibold text-gray-800">Agent Status</h3>
                   </div>
-                )}
-              </div>
+
+                  <div className="space-y-3">
+                    {STEPS.map(({ label, Icon }, idx) => {
+                      const done = idx < aiStep;
+                      const active = idx === aiStep;
+                      const pending = idx > aiStep;
+                      return (
+                        <div
+                          key={idx}
+                          className={`flex items-center gap-3 transition-opacity duration-300 ${pending ? "opacity-30" : "opacity-100"}`}
+                        >
+                          <div
+                            className={`
+                              w-6 h-6 rounded-full flex items-center justify-center shrink-0
+                              transition-all duration-300
+                              ${done   ? "bg-emerald-500 text-white"
+                              : active ? "bg-indigo-600 text-white"
+                              :          "bg-gray-100 text-gray-400"}
+                            `}
+                          >
+                            {done
+                              ? <CheckCircle2 size={13} strokeWidth={2.5} />
+                              : <Icon size={12} strokeWidth={active ? 2.5 : 1.8} />
+                            }
+                          </div>
+                          <span
+                            className={`text-sm font-medium ${
+                              active ? "text-indigo-600" : done ? "text-gray-600" : "text-gray-400"
+                            }`}
+                          >
+                            {label}
+                            {active && "…"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Action result */}
+              {aiStep === 4 && (
+                <div className="space-y-2 fade-in-up">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">Output</p>
+                  <ActionCard
+                    title="Task Created"
+                    description="Follow up with Priya at 10 AM to review the design files."
+                    time="Just now"
+                    type="task"
+                  />
+                </div>
+              )}
+
+              {/* Empty state */}
+              {chat.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-48 text-center">
+                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                    <Zap size={18} className="text-gray-400" strokeWidth={1.5} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-500">Actions will appear here</p>
+                  <p className="text-xs text-gray-400 mt-1">Start a conversation to see results</p>
+                </div>
+              )}
             </>
           )}
 
-          {/* ── Input Bar ── */}
-          <div className="shrink-0 border-t border-border bg-surface/60 backdrop-blur-md px-4 md:px-6 py-4">
-            <div className="flex items-end gap-3 max-w-3xl mx-auto">
-              <div className="flex-1 relative">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => { setInput(e.target.value); autoResize(); }}
-                  onKeyDown={onKeyDown}
-                  rows={1}
-                  placeholder="Ask anything… press Enter to send"
-                  className="input resize-none pr-4 py-3 text-sm"
-                  disabled={loading}
-                />
-              </div>
-              <button
-                onClick={() => send()}
-                disabled={loading || !input.trim()}
-                className="btn btn-primary h-[46px] w-[46px] p-0 rounded-xl shrink-0"
-              >
-                {loading ? <Spinner size={16} /> : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"/>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                  </svg>
-                )}
-              </button>
+          {/* ── KNOWLEDGE TAB ── */}
+          {activeTab === "knowledge" && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">
+                Relevant Sources
+              </p>
+              {MOCK_KNOWLEDGE.map((k, i) => (
+                <div
+                  key={i}
+                  className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-all duration-150 fade-in-up"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                      <BookOpen size={15} className="text-blue-600" strokeWidth={1.8} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{k.title}</p>
+                        <span className="shrink-0 text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-md">
+                          {k.source}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{k.excerpt}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
+
+          {/* ── MEMORY TAB ── */}
+          {activeTab === "memory" && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">
+                Stored Memories
+              </p>
+              {MOCK_MEMORIES.map((m, i) => (
+                <div
+                  key={i}
+                  className="bg-white rounded-xl border border-gray-200 p-4 fade-in-up hover:shadow-sm transition-all duration-150"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+                      <Brain size={15} className="text-violet-600" strokeWidth={1.8} />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-700 leading-relaxed">{m.text}</p>
+                      <p className="text-xs text-gray-400 mt-1.5 font-medium">{m.time}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
