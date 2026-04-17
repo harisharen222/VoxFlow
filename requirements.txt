@@ -11,8 +11,7 @@ python-dotenv==1.0.1
 # Qdrant vector database client
 qdrant-client==1.12.0
 
-# Sentence embeddings (all-MiniLM-L6-v2 → 384-dim vectors)
-sentence-transformers==3.2.0
+# Removed sentence-transformers to stay under Lambda 500MB limit
 
 # HTTP client (used for URL ingestion + later phases: Vapi, Claude)
 httpx==0.27.2

@@ -9,26 +9,19 @@ on every call would be extremely slow.
 """
 
 from typing import List
-from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
+from config import EMBEDDING_MODEL, GEMINI_API_KEY
 
-from config import EMBEDDING_MODEL
-
-# Load the model once, at module level.
-# First run will download weights from HuggingFace and cache them locally.
-_model = SentenceTransformer(EMBEDDING_MODEL)
-
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 def get_embedding(text: str) -> List[float]:
     """
-    Convert a piece of text into a 384-dimensional embedding vector.
-
-    Args:
-        text: The input string to embed.
-
-    Returns:
-        A list of floats (length 384 for all-MiniLM-L6-v2).
+    Convert a piece of text into a high-dimensional embedding vector via Gemini API.
     """
-    # encode() returns a numpy array; convert to a plain Python list
-    # so it can be serialized to JSON by FastAPI without extra work.
-    vector = _model.encode(text, convert_to_numpy=True)
-    return vector.tolist()
+    result = genai.embed_content(
+        model=EMBEDDING_MODEL,
+        content=text,
+        task_type="retrieval_document"
+    )
+    return result['embedding']

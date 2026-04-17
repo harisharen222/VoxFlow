@@ -24,8 +24,8 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "knowledge_base")
 
 
 # ---------- Embeddings ----------
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 
 
 # ---------- External APIs ----------
